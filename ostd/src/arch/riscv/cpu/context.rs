@@ -197,6 +197,7 @@ impl UserContextApiInternal for UserContext {
                     }
                     Trap::Exception(e) => {
                         crate::info!("Unknown CPU exception in user mode: {:#x?}", e);
+                        crate::arch::irq::enable_local();
                         self.exception = Some(CpuException::Unknown);
                         break ReturnReason::UserException;
                     }

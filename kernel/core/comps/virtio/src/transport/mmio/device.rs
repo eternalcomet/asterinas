@@ -10,7 +10,7 @@ use ostd::{
     io::IoMem,
     irq::IrqCallbackFunction,
     mm::{HasDaddr, PAGE_SIZE, dma::DmaCoherent},
-    sync::RwLock,
+    sync::{RwLock, WriteIrqDisabled},
     warn,
 };
 
@@ -39,7 +39,7 @@ pub(crate) struct VirtioMmioTransport {
     layout: SafePtr<VirtioMmioLayout, IoMem>,
     device: Arc<VirtioMmioDevice>,
     common_device: MmioCommonDevice,
-    multiplex: Arc<RwLock<MultiplexIrq>>,
+    multiplex: Arc<RwLock<MultiplexIrq, WriteIrqDisabled>>,
 }
 
 impl MmioDevice for VirtioMmioDevice {

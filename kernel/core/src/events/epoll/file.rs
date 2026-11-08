@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use core::{borrow::Borrow, fmt::Display, time::Duration};
+use core::{
+    borrow::Borrow,
+    fmt::Display,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use keyable_arc::KeyableWeak;
 
@@ -25,6 +30,24 @@ use crate::{
     util::ioctl::RawIoctl,
 };
 
+/// Serializes adding an epoll file to another epoll file.
+///
+/// Every `EPOLL_CTL_ADD` command whose target is an epoll file holds this lock
+/// from the topology check until the insertion into the interest list
+/// completes. Without it, two concurrent commands adding two epoll files to
+/// each other could both pass the check before either of them inserts, and
+/// together create a cycle.
+static EPOLL_TOPOLOGY_LOCK: Mutex<()> = Mutex::new(());
+
+/// The maximum number of nested epoll files.
+///
+/// Watching an epoll file through more than this many levels of other epoll
+/// files is rejected with `ELOOP`, as on Linux, which applies the same limit
+/// of four.
+///
+/// Reference: <https://elixir.bootlin.com/linux/v6.18/source/fs/eventpoll.c#L94>.
+const MAX_EPOLL_NESTING: usize = 4;
+
 /// A file-like object that provides epoll API.
 ///
 /// Conceptually, we maintain two lists: one consists of all interesting files,
@@ -45,6 +68,13 @@ pub(crate) struct EpollFile {
     // Keep this in a separate `Arc` to avoid dropping `EpollFile` in the observer callback, which
     // may cause deadlocks.
     ready: Arc<ReadySet>,
+    /// A lower bound of the number of epoll files that watch this epoll file,
+    /// directly or through other epoll files, along the longest chain.
+    ///
+    /// This field is only accessed while holding `EPOLL_TOPOLOGY_LOCK`, and it
+    /// never decreases: removing an entry with `EPOLL_CTL_DEL` does not lower
+    /// it, so it may overestimate the current topology.
+    up_watch_depth: AtomicUsize,
     /// The common state for this epoll file.
     common: FileCommon,
 }
@@ -57,6 +87,7 @@ impl EpollFile {
         Arc::new(Self {
             interest: Mutex::new(BTreeSet::new()),
             ready: Arc::new(ReadySet::new()),
+            up_watch_depth: AtomicUsize::new(0),
             // Reference: <https://elixir.bootlin.com/linux/v7.0/source/fs/eventpoll.c#L2191>.
             common: FileCommon::new(pseudo_path, AccessMode::O_RDWR, StatusFlags::empty()),
         })
@@ -76,13 +107,162 @@ impl EpollFile {
 
         match *cmd {
             EpollCtl::Add(fd, ep_event, ep_flags) => {
-                self.add_interest(fd, file, ep_event, ep_flags)
+                if let Some(target) = file.downcast_ref::<EpollFile>() {
+                    self.add_epoll_interest(fd, &file, ep_event, ep_flags, target)
+                } else {
+                    self.add_interest(fd, file, ep_event, ep_flags)
+                }
             }
             EpollCtl::Del(fd) => self.del_interest(fd, Arc::downgrade(&file).into()),
             EpollCtl::Mod(fd, ep_event, ep_flags) => {
                 self.mod_interest(fd, file, ep_event, ep_flags)
             }
         }
+    }
+
+    /// Adds an epoll file to the interest list of `self`, after checking that
+    /// the topology of epoll files stays acyclic and shallow.
+    ///
+    /// Like on Linux, adding an epoll file to itself fails with `EINVAL`, and
+    /// adding it so that the epoll files form a cycle, or so that an epoll
+    /// file watches another through more than `MAX_EPOLL_NESTING` levels of
+    /// epoll files, fails with `ELOOP`. Beyond the semantics, a cycle would
+    /// deadlock the system: when a watched file becomes ready, the
+    /// notification travels through the chain of epoll files synchronously,
+    /// so a cycle leads an epoll file's notification to re-enter its own
+    /// ready list, which is protected by a spin lock.
+    fn add_epoll_interest(
+        &self,
+        fd: FileDesc,
+        file: &Arc<dyn FileLike>,
+        ep_event: EpollEvent,
+        ep_flags: EpollFlags,
+        target: &EpollFile,
+    ) -> Result<()> {
+        if core::ptr::eq(self, target) {
+            return_errno_with_message!(Errno::EINVAL, "cannot add an epoll file to itself");
+        }
+
+        // The lock is held until the insertion (and the bookkeeping below)
+        // completes, so that the check and the insertion appear atomic.
+        let _topology = EPOLL_TOPOLOGY_LOCK.lock();
+
+        self.check_epoll_topology(file)?;
+
+        let result = self.add_interest(fd, file.clone(), ep_event, ep_flags);
+        if result.is_ok() {
+            self.update_up_watch_depth(file);
+        }
+        result
+    }
+
+    /// Checks that adding `target` to the interest list of `self` does not
+    /// close a cycle of epoll files and does not make the nesting of epoll
+    /// files deeper than `MAX_EPOLL_NESTING`.
+    ///
+    /// This method must be called while holding `EPOLL_TOPOLOGY_LOCK`.
+    fn check_epoll_topology(&self, target: &Arc<dyn FileLike>) -> Result<()> {
+        let mut scanned = BTreeMap::new();
+        let (watches_self, watch_depth) = self.scan_epoll_watches(target, &mut scanned);
+
+        if watches_self {
+            return_errno_with_message!(Errno::ELOOP, "adding this epoll file would create a cycle");
+        }
+
+        let up_watch_depth = self.up_watch_depth.load(Ordering::Relaxed);
+        if up_watch_depth + 1 + watch_depth > MAX_EPOLL_NESTING {
+            return_errno_with_message!(
+                Errno::ELOOP,
+                "adding this epoll file would nest epoll files too deeply"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Scans the epoll files watched by `target`, directly or through other
+    /// epoll files.
+    ///
+    /// Returns whether `self` is among them, and the number of epoll files
+    /// between `target` and the most deeply nested epoll file below it.
+    /// Results for scanned files are memoized in `scanned`, which also keeps
+    /// the files alive so that their addresses, used as keys, are not reused
+    /// while the scan is in progress.
+    ///
+    /// The recursion depth is bounded by `MAX_EPOLL_NESTING`: the topology
+    /// check rejects any addition that would make a chain of watches longer
+    /// than it, so all chains of watches are within the limit.
+    fn scan_epoll_watches(
+        &self,
+        target: &Arc<dyn FileLike>,
+        scanned: &mut BTreeMap<*const EpollFile, ScannedEpoll>,
+    ) -> (bool, usize) {
+        let target_epoll = target.downcast_ref::<EpollFile>().unwrap();
+
+        let mut result = ScannedEpoll {
+            file: target.clone(),
+            watches_self: core::ptr::eq(target_epoll, self),
+            watch_depth: 0,
+        };
+
+        for file in target_epoll.epoll_interests() {
+            let Some(epoll_file) = file.downcast_ref::<EpollFile>() else {
+                continue;
+            };
+            let key = epoll_file as *const EpollFile;
+            let sub = if let Some(result) = scanned.get(&key) {
+                (result.watches_self, result.watch_depth)
+            } else {
+                self.scan_epoll_watches(&file, scanned)
+            };
+            result.watches_self |= sub.0;
+            result.watch_depth = result.watch_depth.max(sub.1 + 1);
+        }
+
+        let ret = (result.watches_self, result.watch_depth);
+        scanned.insert(target_epoll as *const EpollFile, result);
+        ret
+    }
+
+    /// Raises the `up_watch_depth` of `target` and of the epoll files below
+    /// it after `target` has been added to the interest list of `self`.
+    ///
+    /// This method must be called while holding `EPOLL_TOPOLOGY_LOCK`, after
+    /// the insertion has succeeded.
+    fn update_up_watch_depth(&self, target: &Arc<dyn FileLike>) {
+        let depth = self.up_watch_depth.load(Ordering::Relaxed) + 1;
+        let mut to_scan = vec![(target.clone(), depth)];
+
+        while let Some((file, depth)) = to_scan.pop() {
+            let Some(epoll_file) = file.downcast_ref::<EpollFile>() else {
+                continue;
+            };
+
+            // An already sufficient depth implies that the files below have
+            // also reached sufficient depths when it was set.
+            if epoll_file.up_watch_depth.load(Ordering::Relaxed) >= depth {
+                continue;
+            }
+            epoll_file.up_watch_depth.store(depth, Ordering::Relaxed);
+
+            for file in epoll_file.epoll_interests() {
+                if file.downcast_ref::<EpollFile>().is_some() {
+                    to_scan.push((file, depth + 1));
+                }
+            }
+        }
+    }
+
+    /// Returns the epoll files in the interest list of `self`.
+    ///
+    /// Entries whose files have been dropped are ignored.
+    fn epoll_interests(&self) -> Vec<Arc<dyn FileLike>> {
+        self.interest
+            .lock()
+            .iter()
+            .filter_map(|holder| holder.0.file())
+            .filter(|file| file.downcast_ref::<EpollFile>().is_some())
+            .collect()
     }
 
     fn add_interest(
@@ -304,6 +484,21 @@ impl FileLike for EpollFile {
             fd_flags,
         })
     }
+}
+
+/// The memoized result of scanning an epoll file in
+/// [`EpollFile::scan_epoll_watches`].
+struct ScannedEpoll {
+    // The scanned epoll file, kept alive so that its address, which keys the
+    // memoized results, is not reused while the scan is in progress.
+    #[expect(dead_code)]
+    file: Arc<dyn FileLike>,
+    // Whether the scanned epoll file watches, directly or through other epoll
+    // files, the epoll file being added to.
+    watches_self: bool,
+    // The number of epoll files between the scanned epoll file and the most
+    // deeply nested epoll file below it.
+    watch_depth: usize,
 }
 
 struct EntryHolder(Arc<Entry>);

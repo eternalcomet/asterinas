@@ -2,7 +2,7 @@
 
 use core::{borrow::Borrow, fmt::Display, time::Duration};
 
-use keyable_arc::KeyableWeak;
+use keyable_arc::{KeyableArc, KeyableWeak};
 
 use super::{
     EpollCtl, EpollEvent, EpollFlags,
@@ -76,8 +76,6 @@ impl EpollFile {
 
         // A deadlock can occur if an epoll file becomes ready, wakes up other epoll files, and then
         // loops back to itself. So we must reject all such loops in advance.
-        //
-        // FIXME: A complete loop detection mechanism needs to be implemented here.
         if core::ptr::addr_eq(self, file.as_ref()) {
             return_errno_with_message!(
                 Errno::EINVAL,
@@ -87,13 +85,63 @@ impl EpollFile {
 
         match *cmd {
             EpollCtl::Add(fd, ep_event, ep_flags) => {
-                self.add_interest(fd, file, ep_event, ep_flags)
+                if file.downcast_ref::<EpollFile>().is_some() {
+                    self.add_epoll_interest(fd, file, ep_event, ep_flags)
+                } else {
+                    self.add_interest(fd, file, ep_event, ep_flags)
+                }
             }
             EpollCtl::Del(fd) => self.del_interest(fd, Arc::downgrade(&file).into()),
             EpollCtl::Mod(fd, ep_event, ep_flags) => {
                 self.mod_interest(fd, file, ep_event, ep_flags)
             }
         }
+    }
+
+    fn add_epoll_interest(
+        &self,
+        fd: FileDesc,
+        file: Arc<dyn FileLike>,
+        ep_event: EpollEvent,
+        ep_flags: EpollFlags,
+    ) -> Result<()> {
+        // The lock keeps two concurrent insertions from forming a loop without either of them
+        // seeing it.
+        static LOOP_CHECK_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOOP_CHECK_LOCK.lock();
+
+        if self.is_watched_by(&file) {
+            return_errno_with_message!(Errno::ELOOP, "epoll files must not form a loop");
+        }
+
+        self.add_interest(fd, file, ep_event, ep_flags)
+    }
+
+    /// Returns whether `file` watches this epoll file, directly or through other epoll files.
+    fn is_watched_by(&self, file: &Arc<dyn FileLike>) -> bool {
+        let mut visited = BTreeSet::new();
+        let mut pending = vec![KeyableArc::from(file.clone())];
+
+        while let Some(file) = pending.pop() {
+            if core::ptr::addr_eq(self, &*file) {
+                return true;
+            }
+            let Some(epoll_file) = file.downcast_ref::<EpollFile>() else {
+                continue;
+            };
+            if !visited.insert(file.clone()) {
+                continue;
+            }
+
+            let interest = epoll_file.interest.lock();
+            pending.extend(
+                interest
+                    .iter()
+                    .filter_map(|entry| entry.0.file_weak().upgrade()),
+            );
+        }
+
+        false
     }
 
     fn add_interest(

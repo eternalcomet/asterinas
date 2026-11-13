@@ -44,7 +44,7 @@ pub(super) fn sys_move_mount(
         .read_cstring(to_path_addr, MAX_FILENAME_LEN)?;
 
     let fs_ref = ctx.thread_local.borrow_fs();
-    let path_resolver = fs_ref.resolver().read();
+    let path_resolver = fs_ref.unwrap().resolver().read();
     let to_path = to_path.to_string_lossy();
     let to_fs_path = FsPath::from_fd_at(to_dfd, &to_path, EmptyPathStr::Reject)?;
     let target_path = path_resolver.lookup(&to_fs_path)?;

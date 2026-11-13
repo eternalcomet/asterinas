@@ -29,9 +29,10 @@ impl ContextUnshareAdminApi for Context<'_> {
 
     fn unshare_fs(&self) {
         let mut fs_ref = self.thread_local.borrow_fs_mut();
-        let new_fs = fs_ref.as_ref().clone();
-        *fs_ref = Arc::new(new_fs);
-        self.posix_thread.set_fs(fs_ref.clone());
+        let fs = fs_ref.unwrap();
+        let new_fs = fs.as_ref().clone();
+        *fs = Arc::new(new_fs);
+        self.posix_thread.set_fs(fs.clone());
     }
 
     fn unshare_sysvsem(&self) {
@@ -64,6 +65,7 @@ impl ContextUnshareAdminApi for Context<'_> {
         if flags.contains(CloneFlags::CLONE_NEWNS) {
             self.thread_local
                 .borrow_fs()
+                .unwrap()
                 .resolver()
                 .write()
                 .switch_to_mnt_ns(new_ns_proxy.mnt_ns())?;

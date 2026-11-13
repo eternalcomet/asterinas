@@ -178,7 +178,7 @@ pub(super) fn lookup_path_for_xattr<'a>(
             let path = path.to_string_lossy();
             let fs_path = FsPath::from_fd_at(AT_FDCWD, &path, EmptyPathStr::Reject)?;
             let fs_ref = ctx.thread_local.borrow_fs();
-            let path_resolver = fs_ref.resolver().read();
+            let path_resolver = fs_ref.unwrap().resolver().read();
             let path = if symlink_no_follow {
                 path_resolver.lookup_no_follow(&fs_path)?
             } else {

@@ -40,6 +40,7 @@ pub(super) fn sys_mount(
         let fs_path = FsPath::from_fd_at(AT_FDCWD, &dst_name, EmptyPathStr::Reject)?;
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?
@@ -132,6 +133,7 @@ fn do_bind_mount(
         let fs_path = FsPath::from_fd_at(AT_FDCWD, &src_name, EmptyPathStr::Reject)?;
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?
@@ -188,6 +190,7 @@ fn do_move_mount_old(src_name_addr: Vaddr, dst_path: Path, ctx: &Context) -> Res
         let fs_path = FsPath::from_fd_at(AT_FDCWD, &src_name, EmptyPathStr::Reject)?;
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?

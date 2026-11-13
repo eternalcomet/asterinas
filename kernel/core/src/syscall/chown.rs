@@ -78,7 +78,7 @@ pub(super) fn sys_fchownat(
             FsPath::from_fd_at(dirfd, &path_name, EmptyPathStr::AllowIfFlag(flags.bits()))?;
 
         let fs_ref = ctx.thread_local.borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
         if flags.contains(ChownFlags::AT_SYMLINK_NOFOLLOW) {
             path_resolver.lookup_no_follow(&fs_path)?
         } else {

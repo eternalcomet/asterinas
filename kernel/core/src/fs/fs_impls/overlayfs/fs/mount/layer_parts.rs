@@ -183,6 +183,7 @@ fn resolve_root_dir(ctx: &Context, raw_path: &str, not_dir_msg: &'static str) ->
     let path = ctx
         .thread_local
         .borrow_fs()
+        .unwrap()
         .resolver()
         .read()
         .lookup_no_follow(&fs_path)?;

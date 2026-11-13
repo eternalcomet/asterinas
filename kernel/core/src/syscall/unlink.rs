@@ -32,7 +32,7 @@ pub(super) fn sys_unlinkat(
             .map_err(SplitPathError::reject_root_as_is_dir)?;
 
         let fs_ref = ctx.thread_local.borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
 
         let parent_fs_path = FsPath::from_fd_at(dirfd, parent_path_name, EmptyPathStr::Reject)?;
         let dir_path = path_resolver.lookup(&parent_fs_path)?;

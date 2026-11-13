@@ -36,9 +36,9 @@ pub(super) fn sys_openat(
         let fs_path = FsPath::from_fd_at(dirfd, path.as_ref(), EmptyPathStr::Reject)?;
 
         let fs_ref = ctx.thread_local.borrow_fs();
-        let mask_mode = mode & !fs_ref.umask().get();
+        let mask_mode = mode & !fs_ref.unwrap().umask().get();
 
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
         do_open(
             &path_resolver,
             &fs_path,

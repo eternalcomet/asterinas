@@ -80,12 +80,14 @@ pub(super) fn sys_inotify_add_watch(
         if options.contains(InotifyControls::DONT_FOLLOW) {
             ctx.thread_local
                 .borrow_fs()
+                .unwrap()
                 .resolver()
                 .read()
                 .lookup_no_follow(&fs_path)?
         } else {
             ctx.thread_local
                 .borrow_fs()
+                .unwrap()
                 .resolver()
                 .read()
                 .lookup(&fs_path)?

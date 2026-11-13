@@ -14,7 +14,7 @@ pub(crate) fn lookup_socket_file(path: &str) -> Result<Path> {
     let path = {
         let current = Task::current().unwrap();
         let fs_ref = current.as_thread_local().unwrap().borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
         let fs_path = FsPath::try_from(path)?;
         path_resolver.lookup(&fs_path)?
     };
@@ -41,7 +41,7 @@ pub(crate) fn create_socket_file(path_name: &str) -> Result<Path> {
     let result = (|| {
         let current = Task::current().unwrap();
         let fs_ref = current.as_thread_local().unwrap().borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
 
         let fs_path = FsPath::try_from(path_name)?;
         let (parent, file_name) = path_resolver

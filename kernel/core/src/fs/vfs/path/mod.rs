@@ -596,7 +596,7 @@ impl Path {
         }
 
         let fs_ref = ctx.thread_local.borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
 
         if path_resolver.root() == self {
             return_errno_with_message!(Errno::EINVAL, "the root cannot be mounted on");

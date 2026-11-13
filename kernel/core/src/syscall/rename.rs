@@ -47,7 +47,7 @@ pub(super) fn sys_renameat2(
     };
 
     let fs_ref = ctx.thread_local.borrow_fs();
-    let path_resolver = fs_ref.resolver().read();
+    let path_resolver = fs_ref.unwrap().resolver().read();
 
     let old_path_name = old_path_name.to_string_lossy();
     let (old_parent_path, old_name) = {

@@ -31,6 +31,7 @@ pub(super) fn do_rmdirat(
         (
             ctx.thread_local
                 .borrow_fs()
+                .unwrap()
                 .resolver()
                 .read()
                 .lookup(&fs_path)?,

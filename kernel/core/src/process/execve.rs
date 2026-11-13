@@ -50,7 +50,7 @@ pub(crate) fn do_execve(
     let envp = read_cstring_vec(envp_ptr_ptr, MAX_NR_STRING_ARGS, MAX_LEN_STRING_ARG, ctx)?;
 
     let fs_ref = ctx.thread_local.borrow_fs();
-    let path_resolver = fs_ref.resolver().read();
+    let path_resolver = fs_ref.unwrap().resolver().read();
 
     debug!(
         "file path: {:?}, argv = {:?}, envp = {:?}",

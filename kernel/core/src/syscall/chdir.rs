@@ -15,7 +15,7 @@ pub(super) fn sys_chdir(path_ptr: Vaddr, ctx: &Context) -> Result<SyscallReturn>
     debug!("path = {:?}", path_name);
 
     let fs_ref = ctx.thread_local.borrow_fs();
-    let mut path_resolver = fs_ref.resolver().write();
+    let mut path_resolver = fs_ref.unwrap().resolver().write();
     let path = {
         let path_name = path_name.to_string_lossy();
         let fs_path = FsPath::try_from(path_name.as_ref())?;
@@ -36,6 +36,6 @@ pub(super) fn sys_fchdir(raw_fd: RawFileDesc, ctx: &Context) -> Result<SyscallRe
     };
 
     let fs_ref = ctx.thread_local.borrow_fs();
-    fs_ref.resolver().write().chdir(path)?;
+    fs_ref.unwrap().resolver().write().chdir(path)?;
     Ok(SyscallReturn::Return(0))
 }

@@ -5,6 +5,10 @@ use crate::prelude::*;
 
 pub(super) fn sys_umask(mask: u16, ctx: &Context) -> Result<SyscallReturn> {
     debug!("mask = 0o{:o}", mask);
-    let old_mask = ctx.thread_local.borrow_fs().swap_umask(mask.try_into()?);
+    let old_mask = ctx
+        .thread_local
+        .borrow_fs()
+        .unwrap()
+        .swap_umask(mask.try_into()?);
     Ok(SyscallReturn::Return(old_mask.get() as _))
 }

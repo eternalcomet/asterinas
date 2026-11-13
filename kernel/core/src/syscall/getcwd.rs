@@ -8,7 +8,7 @@ use crate::{fs::vfs::path::AbsPathResult, prelude::*};
 pub(super) fn sys_getcwd(buf: Vaddr, len: usize, ctx: &Context) -> Result<SyscallReturn> {
     let abs_path = {
         let fs_ref = ctx.thread_local.borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
         path_resolver.make_abs_path(path_resolver.cwd())
     };
 

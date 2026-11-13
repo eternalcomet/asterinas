@@ -35,7 +35,7 @@ pub(super) fn sys_readlinkat(
 
     let link_path = {
         let fs_ref = ctx.thread_local.borrow_fs();
-        let path_resolver = fs_ref.resolver().read();
+        let path_resolver = fs_ref.unwrap().resolver().read();
 
         let path_name = path_name.to_string_lossy();
         let fs_path = FsPath::from_fd_at(dirfd, &path_name, EmptyPathStr::Allow)?;

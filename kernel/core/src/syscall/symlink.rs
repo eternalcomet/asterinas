@@ -35,6 +35,7 @@ pub(super) fn sys_symlinkat(
         let fs_path = FsPath::from_fd_at(dirfd, &link_path_name, EmptyPathStr::Reject)?;
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup_unresolved_no_follow(&fs_path)?

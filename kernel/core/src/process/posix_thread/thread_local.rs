@@ -38,7 +38,7 @@ pub(crate) struct ThreadLocal {
     /// File table.
     file_table: RefCell<Option<RwArc<FileTable>>>,
     /// File system.
-    fs: RefCell<Arc<ThreadFsInfo>>,
+    fs: RefCell<Option<Arc<ThreadFsInfo>>>,
 
     // Supplementary userspace CPU context.
     supp_user_context: SuppUserContext,
@@ -77,7 +77,7 @@ impl ThreadLocal {
             page_fault_disabled: Cell::new(false),
             robust_list: RefCell::new(None),
             file_table: RefCell::new(Some(file_table)),
-            fs: RefCell::new(fs),
+            fs: RefCell::new(Some(fs)),
             supp_user_context,
             sig_stack: RefCell::new(SigStack::default()),
             sig_mask_saved: Cell::new(None),
@@ -150,18 +150,18 @@ impl ThreadLocal {
         ThreadLocalOptionRefMut(self.file_table.borrow_mut())
     }
 
-    pub(crate) fn borrow_fs(&self) -> Ref<'_, Arc<ThreadFsInfo>> {
-        self.fs.borrow()
+    pub(crate) fn borrow_fs(&self) -> FsRef<'_> {
+        ThreadLocalOptionRef(self.fs.borrow())
     }
 
-    pub(in crate::process) fn borrow_fs_mut(&self) -> RefMut<'_, Arc<ThreadFsInfo>> {
-        self.fs.borrow_mut()
+    pub(in crate::process) fn borrow_fs_mut(&self) -> FsRefMut<'_> {
+        ThreadLocalOptionRefMut(self.fs.borrow_mut())
     }
 
     pub(crate) fn is_fs_shared(&self) -> bool {
         // If the filesystem information is not shared, its reference count should be exactly 2:
         // one reference is held by `ThreadLocal` and the other by `PosixThread`.
-        Arc::strong_count(&self.fs.borrow()) > 2
+        Arc::strong_count(self.borrow_fs().unwrap()) > 2
     }
 
     pub(crate) fn supp_user_context(&self) -> &SuppUserContext {
@@ -300,6 +300,9 @@ impl SuppUserContext {
 /// An immutable, shared reference to the file table in [`ThreadLocal`].
 pub(crate) type FileTableRef<'a> = ThreadLocalOptionRef<'a, RwArc<FileTable>>;
 
+/// An immutable, shared reference to the file system information in [`ThreadLocal`].
+pub(crate) type FsRef<'a> = ThreadLocalOptionRef<'a, Arc<ThreadFsInfo>>;
+
 /// An immutable, shared reference to the `NsProxy` in [`ThreadLocal`].
 pub(crate) type NsProxyRef<'a> = ThreadLocalOptionRef<'a, Arc<NsProxy>>;
 
@@ -319,6 +322,9 @@ impl<T> ThreadLocalOptionRef<'_, T> {
 
 /// A mutable, exclusive reference to the file table in [`ThreadLocal`].
 pub(crate) type FileTableRefMut<'a> = ThreadLocalOptionRefMut<'a, RwArc<FileTable>>;
+
+/// A mutable, exclusive reference to the file system information in [`ThreadLocal`].
+pub(in crate::process) type FsRefMut<'a> = ThreadLocalOptionRefMut<'a, Arc<ThreadFsInfo>>;
 
 /// A mutable, exclusive reference to the `NsProxy` in [`ThreadLocal`].
 pub(in crate::process) type NsProxyRefMut<'a> = ThreadLocalOptionRefMut<'a, Arc<NsProxy>>;

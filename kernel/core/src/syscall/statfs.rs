@@ -34,6 +34,7 @@ pub(super) fn sys_statfs(
         let path = ctx
             .thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?;

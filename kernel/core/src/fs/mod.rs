@@ -42,7 +42,7 @@ pub(crate) fn init_in_first_kthread(path_resolver: &PathResolver) {
 
 pub(crate) fn init_in_first_process(ctx: &Context) {
     let fs = ctx.thread_local.borrow_fs();
-    let path_resolver = fs.resolver().read();
+    let path_resolver = fs.unwrap().resolver().read();
 
     if init::booted_from_rootfs() {
         let dev_path = lookup_or_create_dev(&path_resolver).unwrap();

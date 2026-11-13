@@ -393,7 +393,7 @@ fn clone_child_task(
     let child_file_table = clone_files(thread_local.borrow_file_table().unwrap(), clone_flags);
 
     // Clone FS
-    let child_fs = clone_fs(&thread_local.borrow_fs(), clone_flags);
+    let child_fs = clone_fs(thread_local.borrow_fs().unwrap(), clone_flags);
 
     // Clone FPU context
     let child_fpu_context = thread_local.supp_user_context().fpu().get();
@@ -522,7 +522,7 @@ fn clone_child_process(
     let child_file_table = clone_files(thread_local.borrow_file_table().unwrap(), clone_flags);
 
     // Clone the filesystem information
-    let child_fs = clone_fs(&thread_local.borrow_fs(), clone_flags);
+    let child_fs = clone_fs(thread_local.borrow_fs().unwrap(), clone_flags);
 
     // Clone signal dispositions
     let child_sig_dispositions = clone_sighand(process.sig_dispositions(), clone_flags);

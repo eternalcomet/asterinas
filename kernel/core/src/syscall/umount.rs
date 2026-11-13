@@ -20,12 +20,14 @@ pub(super) fn sys_umount(path_addr: Vaddr, flags: u64, ctx: &Context) -> Result<
     let target_path = if umount_flags.contains(UmountFlags::UMOUNT_NOFOLLOW) {
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup_no_follow(&fs_path)?
     } else {
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?

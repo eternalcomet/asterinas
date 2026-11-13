@@ -196,6 +196,7 @@ impl<'a> FsCreationCtx<'a> {
         let path = task_ctx
             .thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?;

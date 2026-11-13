@@ -39,6 +39,7 @@ pub(super) fn sys_truncate(path_ptr: Vaddr, len: isize, ctx: &Context) -> Result
         let fs_path = FsPath::from_fd_at(AT_FDCWD, &path_name, EmptyPathStr::Reject)?;
         ctx.thread_local
             .borrow_fs()
+            .unwrap()
             .resolver()
             .read()
             .lookup(&fs_path)?

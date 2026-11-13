@@ -25,6 +25,7 @@ pub(super) fn sys_mkdirat(
         let path = path.to_string_lossy();
         let fs_path = FsPath::from_fd_at(dirfd, &path, EmptyPathStr::Reject)?;
         fs_ref
+            .unwrap()
             .resolver()
             .read()
             .lookup_unresolved_no_follow(&fs_path)?
@@ -32,7 +33,7 @@ pub(super) fn sys_mkdirat(
     };
 
     let inode_mode = {
-        let mask_mode = mode & !fs_ref.umask().get();
+        let mask_mode = mode & !fs_ref.unwrap().umask().get();
         InodeMode::from_bits_truncate(mask_mode)
     };
     dir_path.new_child(&name, InodeType::Dir, inode_mode)?;

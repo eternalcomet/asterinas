@@ -33,7 +33,7 @@ pub(super) fn sys_pivot_root(
     // more suitable lock (i.e. the global mount lock or the namespace lock) to avoid deadlock.
     let pid_table = pid_table::pid_table_mut();
     let fs_ref = ctx.thread_local.borrow_fs();
-    let mut path_resolver = fs_ref.resolver().write();
+    let mut path_resolver = fs_ref.unwrap().resolver().write();
     path_resolver.pivot_root(new_root_path, put_old_path, &pid_table, ctx)?;
 
     Ok(SyscallReturn::Return(0))
